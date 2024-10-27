@@ -7,8 +7,8 @@ Original file is located at
     https://colab.research.google.com/github/omid-reza/COMP-6781/blob/main/Assignment2/HW2.ipynb
 """
 
-!pip install datasets
-!gdown https://drive.google.com/file/d/1-mB6idLW5Jg4aE68jOj5NDcDxRNlMXpu/view?usp=sharing --fuzzy
+#!pip install datasets
+#!gdown https://drive.google.com/file/d/1-mB6idLW5Jg4aE68jOj5NDcDxRNlMXpu/view?usp=sharing --fuzzy
 
 import torch
 torch.manual_seed(0)
@@ -17,7 +17,7 @@ from datasets import load_dataset
 from random import sample
 
 wikitext = load_dataset("wikipedia", "20220301.simple")
-trim_dataset = sample(wikitext['train']['text'], 5000)
+trim_dataset = sample(wikitext['train']['text'], 50000)
 
 trim_dataset[0]
 
@@ -188,7 +188,7 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 model = CBOW(len(word_to_index)).to(device)
 loss_function = nn.CrossEntropyLoss()
 optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
-epochs = 100
+epochs = 10
 
 # Training loop
 for epoch in range(epochs):
@@ -251,7 +251,13 @@ def cosine_similarity(v1, v2):
     cosine_similarity : float
         Cosine similarity between v1 and v2
     """
-    return cosine_similarity_pt(v1.unsqueeze(0), v2.unsqueeze(0)).item()
+    dot_product = torch.dot(v1, v2)
+    magnitude_v1 = torch.norm(v1)
+    magnitude_v2 = torch.norm(v2)
+    if magnitude_v1.item() == 0 or magnitude_v2.item() == 0:
+        return 0.0
+    cosine_similarity = dot_product / (magnitude_v1 * magnitude_v2)
+    return cosine_similarity
 
 def get_k_nearest_words(k, word, vocabulary, model, word_to_index):
     """ Method to find the k nearest words of a given vector
@@ -399,4 +405,4 @@ fig.update_layout(
 )
 
 # fig.show()
-fig.write_image("t-SNE_word_embeddings.png")
+fig.write_image("t-SNE_word_embeddings_50k_10ep.png")
