@@ -17,8 +17,8 @@ This [guide](https://pytorch.org/tutorials/beginner/basics/intro.html) might com
 Let's start by installing the needed libraries
 """
 
-# !pip install datasets
-# !gdown https://drive.google.com/file/d/1-mB6idLW5Jg4aE68jOj5NDcDxRNlMXpu/view?usp=sharing --fuzzy
+!pip install datasets
+!gdown https://drive.google.com/file/d/1-mB6idLW5Jg4aE68jOj5NDcDxRNlMXpu/view?usp=sharing --fuzzy
 
 import torch
 torch.manual_seed(0)
@@ -29,7 +29,7 @@ from datasets import load_dataset
 from random import sample
 
 wikitext = load_dataset("wikipedia", "20220301.simple")
-trim_dataset= sample(wikitext['train']['text'],5000)
+trim_dataset= sample(wikitext['train']['text'], 5000)
 
 """Let's have a look at a datapoint."""
 
@@ -199,7 +199,7 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu") #CAUTION: 
 model = CBOW(len(word_to_index)).to(device)
 loss_function = nn.CrossEntropyLoss()
 optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
-epochs = 10
+epochs = 100
 
 #BE PATIENT: This code can take up to 2 hours and 10 min for a batch size of 64 and 10 epochs
 for epoch in range(epochs):
@@ -222,93 +222,95 @@ Now that we hopefully have good embeddings we can put them to the test. Let's st
 """
 
 def get_embedding(word, model, word_to_index):
-  """ Method to get the embedding vector for a given word.
-  Arguments
-  ---------
-  word : String
-     Word given
-  model : NN.module
-     CBOW model
-  word_to_index : Dictionary
-     Dictionary mapping words to index with format {word:index}
-  Returns
-  -------
-  word_embedding : Tensor
-      Embedding vector for the given word
+    """ Method to get the embedding vector for a given word.
+    Arguments
+    ---------
+    word : String
+       Word given
+    model : nn.Module
+       CBOW model
+    word_to_index : Dictionary
+       Dictionary mapping words to index with format {word:index}
+    Returns
+    -------
+    word_embedding : Tensor
+        Embedding vector for the given word
     """
-  index = word_to_index.get(word)# get word index
+    # Get word index
+    index = word_to_index.get(word, word_to_index['OOV'])
 
-  with torch.no_grad():
-        embedding_weights = model.embedding.weight # Get the weights of the embedding layer
+    with torch.no_grad():
+        # Get the weights of the embedding layer
+        embedding_weights = model.embedding.weight
         embedding_weights.requires_grad = False
-        word_embedding = embedding_weights[index] # Extract the embedding vector for the given word index
+        # Extract the embedding vector for the given word index
+        word_embedding = embedding_weights[index]
 
-  return word_embedding
+    return word_embedding
 
-get_embedding("shot",model,word_to_index) #test this code by getting embedding of the word "shot"
+# Test the function by getting embedding of the word "shot"
+shot_embedding = get_embedding("shot", model, word_to_index)
+print("Embedding for 'shot':")
+print(shot_embedding)
+print("Embedding shape:", shot_embedding.shape)
 
-def cosine_similarity(v1,v2):
-  """ Method to calculate cosine similarity between two vectors.
-  Arguments
-  ---------
-  v1 : Tensor
-     First vector
-  v2 : Tensor
-     Second vector
-  Returns
-  -------
-  cosine_similarity : float
-      Cosine similarity between v1 and v2
-  """
-  dot_product = torch.dot(v1, v2)
-  magnitude_v1 = torch.norm(v1)
-  magnitude_v2 = torch.norm(v2)
-  if magnitude_v1 == 0 or magnitude_v2 == 0:
-    return 0.0
-  cosine_similarity = dot_product / (magnitude_v1 * magnitude_v2)
-  return cosine_similarity
+def cosine_similarity(v1, v2):
+    """ Method to calculate cosine similarity between two vectors.
+    Arguments
+    ---------
+    v1 : Tensor
+       First vector
+    v2 : Tensor
+       Second vector
+    Returns
+    -------
+    cosine_similarity : float
+        Cosine similarity between v1 and v2
+    """
+    return torch.dot(v1, v2) / (torch.norm(v1) * torch.norm(v2))
 
-def get_k_nearest_words(k, word, vocabulary,model,word_to_index):
-  """ Method to find the k nearest words of a given vector
-  Arguments
-  ---------
-  k : int
-     Number of nearest words to return
-  word : torch.Tensor
-     Embedding vector for the given word
-  vocabulary : Dictionary
-     Dictionary mapping words to frequency with format {word:frequency}
-  model : NN.module
-     CBOW model
-  word_to_index : Dictionary
-     Dictionary mapping words to index with format {word:index}
-  Returns
-  -------
-  similar : List of Strings
-      List of k nearest words to the given word
-  """
-  similarity_scores= torch.zeros(len(vocabulary))
-  #fill similarity scores matrix using the word and our cosine_similarity function
-  if isinstance(word, str):
-    word_index = word_to_index.get(word, word_to_index["<OOV>"])
-    word_embedding = model.embedding(torch.tensor(word_index)).detach()
-  else:
-    word_embedding = word.detach()
+def get_k_nearest_words(k, word_embedding, vocabulary, model, word_to_index):
+    """ Method to find the k nearest words of a given vector
+    Arguments
+    ---------
+    k : int
+       Number of nearest words to return
+    word_embedding : torch.Tensor
+       Embedding vector for the given word
+    vocabulary : Dictionary
+       Dictionary mapping words to frequency with format {word:frequency}
+    model : nn.Module
+       CBOW model
+    word_to_index : Dictionary
+       Dictionary mapping words to index with format {word:index}
+    Returns
+    -------
+    similar : List of Strings
+        List of k nearest words to the given word
+    """
+    similarity_scores = torch.zeros(len(vocabulary))
 
-  similarity_scores = torch.zeros(len(vocabulary))
-  # Iterate through all words in the vocabulary
-  for idx, vocab_word in enumerate(vocabulary):
-    vocab_index = word_to_index[vocab_word]
-    vocab_embedding = model.embedding(torch.tensor(vocab_index).to(device))
-    # Compute cosine similarity between the word and the vocab word
-    similarity_scores[idx] = cosine_similarity(word_embedding, vocab_embedding)
+    # Fill similarity scores matrix using the word and our cosine_similarity function
+    for i, word in enumerate(vocabulary.keys()):
+        other_embedding = get_embedding(word, model, word_to_index)
+        similarity_scores[i] = cosine_similarity(word_embedding, other_embedding)
 
-  k_first= torch.topk(similarity_scores,k)
-  similar=[]
-  #TODO: create a function to get the k nearest words to a certain chosen word. TIP: use pytorch's topk
-  similar = [list(vocabulary.keys())[i] for i in k_first.indices]
+    # Get the k highest similarity scores
+    k_values, k_indices = torch.topk(similarity_scores, k + 1)  # +1 to account for the word itself
 
-  return similar
+    similar = []
+    for i in range(1, k + 1):  # Start from 1 to skip the word itself
+        index = k_indices[i].item()
+        word = list(vocabulary.keys())[index]
+        similar.append(word)
+
+    return similar
+
+# Example usage:
+word = "cat"
+word_embedding = get_embedding(word, model, word_to_index)
+nearest_words = get_k_nearest_words(10, word_embedding, vocabulary, model, word_to_index)
+print(f"10 nearest words to '{word}': {nearest_words}")
 
 """The Google analogy test set is a state of the art data set for word embeddings that tests their ability to solve analogy tasks. A well-known example for it is: "king is to man as queen is to women." We will use a subset of this dataset to see how our CBOW model performs.
 
@@ -316,101 +318,119 @@ def get_k_nearest_words(k, word, vocabulary,model,word_to_index):
 
 import pandas as pd
 
-def test_analogy(model, word_to_index, analogy_file, subset_size=None):
-  """
-  Method to test accuracy of CBOW embeddings on analogy tasks.
+def test_analogy(model, word_to_index, analogy_file):
+    """ Method to test accuracy of CBOW embeddings on analogy tasks.
+    Arguments
+    ---------
+    model : nn.Module
+       CBOW model
+    word_to_index : Dictionary
+       Dictionary mapping words to index with format {word:index}
+    analogy_file : String
+       File containing analogy tasks
+    Returns
+    -------
+    accuracy : float
+        accuracy of the model on the analogy tasks
+    """
+    df = pd.read_csv(analogy_file)
+    df = df[df.category=='capital-common-countries']  # using capital cities subset of test set
+    correct = 0
+    total = 0
 
-  Arguments
-  ---------
-  model : nn.Module
-  Trained CBOW model.
-  word_to_index : Dictionary
-  Dictionary mapping words to indices {word: index}.
-  analogy_file : String
-  File containing analogy tasks.
-  subset_size : int, optional
-  Number of rows to use from the dataset (for testing purposes).
+    for index, row in df.iterrows():
+        # Extract words and standardize to lowercase
+        word_one = row['word_one'].lower()
+        word_two = row['word_two'].lower()
+        word_three = row['word_three'].lower()
+        word_four = row['word_four'].lower()
 
-  Returns
-  -------
-  accuracy : float
-  Accuracy of the model on the analogy tasks.
-  """
-  # Load the CSV file
-  df = pd.read_csv(analogy_file)
+        try:
+            # Get embeddings of all words
+            emb_one = get_embedding(word_one, model, word_to_index)
+            emb_two = get_embedding(word_two, model, word_to_index)
+            emb_three = get_embedding(word_three, model, word_to_index)
 
-  # Filter by the 'capital-common-countries' category
-  df = df[df['category'] == 'capital-common-countries']
+            # Calculate result embedding
+            result = emb_two - emb_one + emb_three
 
-  # Reduce the dataset size for testing, if subset_size is provided
-  if subset_size:
-    df = df.head(subset_size)
+            # Get 10 nearest neighbors
+            prediction = get_k_nearest_words(10, result, word_to_index, model, word_to_index)
 
-  correct = 0
-  total = 0
-  skipped = 0 # Counter for skipped tasks
+            # Check if word_four is in prediction
+            if word_four in prediction:
+                correct += 1
 
-  # Iterate through each analogy task
-  for index, row in df.iterrows():
-    word_one = row['word_one'].lower()
-    word_two = row['word_two'].lower()
-    word_three = row['word_three'].lower()
-    word_four = row['word_four'].lower()
+            total += 1
 
-    # Skip tasks if any word is not in the vocabulary
-    if (word_one not in word_to_index) or (word_two not in word_to_index) or (word_three not in word_to_index) or (word_four not in word_to_index):
-      skipped += 1
-      continue
+        except KeyError:
+            # Skip this analogy if any word is not in the vocabulary
+            continue
 
-    # Get embeddings for the words
-    embedding_word_one = get_embedding(word_one, model, word_to_index)
-    embedding_word_two = get_embedding(word_two, model, word_to_index)
-    embedding_word_three = get_embedding(word_three, model, word_to_index)
+    if total != 0:
+        accuracy = correct / total
+    else:
+        return 'No word was found in the embeddings'
 
-    # Compute the resulting analogy vector
-    result_embedding = embedding_word_two - embedding_word_one + embedding_word_three
+    return accuracy
 
-    # Find the top 3 nearest words to the result
-    predictions = get_k_nearest_words(10, result_embedding, word_to_index, model.to(device), word_to_index)
-
-    # Print detailed results
-    is_correct = word_four in predictions
-    print(f"Analogy: {word_one} -> {word_two} :: {word_three} -> {word_four} | Prediction: {predictions}, Correct: {is_correct}")
-
-    if is_correct:
-      correct += 1
-    total += 1
-
-   # Print final stats
-  print(f"Total tasks skipped due to missing words: {skipped}")
-  if total == 0:
-    print("No valid tasks were processed.")
-    return 'No word was found in the embeddings'
-
-  accuracy = correct / total
-  print(f"Analogy task accuracy: {accuracy:.4f}")
-  return accuracy
-
-# Test the model on a reduced subset for quick debugging (e.g., 10 rows)
-
-test_analogy(model,word_to_index,'TestSet_sample.csv')
+# Test the analogy function
+accuracy = test_analogy(model, word_to_index, 'TestSet_sample.csv')
+print(f"Accuracy on analogy tasks: {accuracy}")
 
 """Our model can do much better! In the "Let's experiment" part we will try to improve this model. Also depending on your GPU accesibility you can train for more epochs and data (making trim_dataset bigger in cell #3).
 
 TSNE can be a very helpful and cool visualization method of our vectors, this way we can clearly see the relationship between different words (maybe even find some clusters!). Let's implement this visualization.
 """
 
-import numpy as np
-import pandas as pd
-import torch
-import sys
+# import numpy as np
+# import pandas as pd
+# import torch
+# import sys
 
-from sklearn.manifold import TSNE
-import plotly.graph_objects as go
+# from sklearn.manifold import TSNE
+# import plotly.graph_objects as go
 
-tsne = #create TSNE
-embeddings = #get embeddings by detaching weights of embedding layer (use only first 1000 words)
-#TODO create TSNE plot to visualize the relationship between our vectors
+# # Assuming the model is already defined and trained
+# model.eval()
+
+# # Get embeddings for the first 1000 words
+# words = list(word_to_index.keys())[:1000]
+# embeddings = model.embedding.weight.detach().cpu().numpy()[:1000]
+
+# # Create TSNE
+# tsne = TSNE(n_components=2, random_state=0)
+# tsne_results = tsne.fit_transform(embeddings)
+
+# # Create a DataFrame for easier plotting
+# df = pd.DataFrame({
+#     'x': tsne_results[:, 0],
+#     'y': tsne_results[:, 1],
+#     'word': words
+# })
+
+# # Create the plot
+# fig = go.Figure()
+
+# fig.add_trace(go.Scatter(
+#     x=df['x'],
+#     y=df['y'],
+#     mode='markers+text',
+#     text=df['word'],
+#     textposition="top center",
+#     hoverinfo='text',
+#     marker=dict(size=5, color=df['x'], colorscale='Viridis', showscale=True)
+# ))
+
+# fig.update_layout(
+#     title='t-SNE visualization of word embeddings',
+#     xaxis_title='t-SNE dimension 1',
+#     yaxis_title='t-SNE dimension 2',
+#     width=1000,
+#     height=800
+# )
+
+# fig.show()
 
 """## Let's Experiment!
 
