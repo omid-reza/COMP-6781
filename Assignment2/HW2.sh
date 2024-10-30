@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH -J HW2_50k
+#SBATCH -J HW2_all
 #SBATCH --mem=200GB
 #SBATCH -p phys
 #SBATCH --mail-type=ALL
