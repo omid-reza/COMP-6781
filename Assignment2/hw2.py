@@ -188,7 +188,7 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 model = CBOW(len(word_to_index)).to(device)
 loss_function = nn.CrossEntropyLoss()
 optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
-epochs = 10
+epochs = 50
 
 # Training loop
 for epoch in range(epochs):
@@ -405,4 +405,4 @@ fig.update_layout(
 )
 
 # fig.show()
-fig.write_image("t-SNE_word_embeddings_all_6k_10epc_.png")
+fig.write_image("t-SNE_word_embeddings_all_5k_50epc_.png")
