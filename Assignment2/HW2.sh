@@ -1,7 +1,7 @@
 #!/bin/bash
-#SBATCH -J HW2_all
+#SBATCH -J HW2_5k_10ep
 #SBATCH --mem=200GB
-#SBATCH -p phys
+#SBATCH -p all
 #SBATCH --mail-type=ALL
 #SBATCH --mail-user=omid.orh@gmail.com
 #SBATCH --gpus=1

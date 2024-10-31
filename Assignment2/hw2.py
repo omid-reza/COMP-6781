@@ -17,8 +17,7 @@ from datasets import load_dataset
 from random import sample
 
 wikitext = load_dataset("wikipedia", "20220301.simple")
-# trim_dataset = sample(wikitext['train']['text'], 50000)
-trim_dataset = wikitext['train']['text']
+trim_dataset = sample(wikitext['train']['text'], 5000)
 
 trim_dataset[0]
 
@@ -406,4 +405,4 @@ fig.update_layout(
 )
 
 # fig.show()
-fig.write_image("t-SNE_word_embeddings_all_10ep.png")
+fig.write_image("t-SNE_word_embeddings_all_6k_10epc_.png")
