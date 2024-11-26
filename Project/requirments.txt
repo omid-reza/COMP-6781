@@ -1,5 +1,2 @@
-openai
-google-generativeai
 numpy
 pandas
-dotenv
