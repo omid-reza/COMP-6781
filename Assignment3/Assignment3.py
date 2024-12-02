@@ -174,4 +174,42 @@ def train(model, epochs, train_loader, validation_loader):
         val_loss = evaluate(model, validation_loader)
         print(f"Epoch: {epoch}, Train loss: {train_loss:.3f}, Val loss: {val_loss:.3f}")
 
-train(model, 10, train_loader, validation_loader)
+train(model, 2, train_loader, validation_loader)
+
+
+from evaluate import load
+bertscore = load("bertscore")
+rouge = load('rouge')
+meteor = load('meteor')
+
+# function to generate output sequence using greedy algorithm
+def greedy_decode(model, src, src_mask, max_len, start_symbol):
+    src = src.to(device)
+    src_mask = src_mask.to(device)
+    memory = model.encode(src, src_mask)
+    ys = torch.ones(1, 1).fill_(start_symbol).type(torch.long).to(device)
+    for i in range(max_len-1):
+        memory = memory.to(device)
+        tgt_mask = create_triu_mask(ys.size(1)).to(device)
+        out = model.decode(ys, memory, tgt_mask)
+
+        prob = model.fc(out[:, -1])
+
+        _, next_word = torch.max(prob, dim=1)
+        next_word = next_word.item()
+
+        ys = torch.cat([ys, torch.ones(1, 1).type_as(src.data).fill_(next_word)], dim=1)
+        if next_word == EOS_IDX:
+            break
+    return ys
+
+def translate(model: torch.nn.Module, src_sentence: str, tokenizer):
+    model.eval()
+    src, _ = tokenize_batch(src_sentence, "", tokenizer)
+    src = src.to(device)
+    num_tokens = src.shape[1]
+    src_mask = (torch.zeros(num_tokens, num_tokens)).type(torch.float).to(device)
+    tgt_tokens = greedy_decode(model,  src, src_mask, max_len= int(num_tokens * 1.2 ), start_symbol=tokenizer.cls_token_id).flatten()
+    return tokenizer.decode(tgt_tokens, skip_special_tokens=True)
+
+print(translate(model, "Hello how are you today", tokenizer))
