@@ -10,7 +10,7 @@ from torch.amp import autocast
 from tqdm import tqdm
 from torch.amp import GradScaler, autocast
 
-dataset = load_dataset("IWSLT/iwslt2017",'iwslt2017-en-fr')
+dataset = load_dataset("IWSLT/iwslt2017",'iwslt2017-en-fr', trust_remote_code=True)
 trim_dataset= dataset['train']['translation'][:100000]
 
 
@@ -106,11 +106,6 @@ PAD_IDX = tokenizer.pad_token_id
 BOS_IDX = tokenizer.cls_token_id if tokenizer.cls_token_id else tokenizer.pad_token_id
 EOS_IDX = tokenizer.sep_token_id if tokenizer.sep_token_id else tokenizer.pad_token_id
 model = TransformerModel(tokenizer.vocab_size, tokenizer.vocab_size,512, 8, 3, 3, 256,0.1).to(device)
-
-# MULTIPLE GPUS
-model= nn.DataParallel(model)
-# MULTIPLE GPUS
-
 optimizer = torch.optim.Adam(model.parameters(), lr=0.0001, betas=(0.9, 0.98), eps=1e-9)
 loss_function = torch.nn.CrossEntropyLoss(ignore_index=PAD_IDX)
 train_loader = torch.utils.data.DataLoader(training_set, batch_size=16, shuffle=True)
