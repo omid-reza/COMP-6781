@@ -9,6 +9,7 @@ from torch.utils.data import DataLoader
 from torch.amp import autocast
 from tqdm import tqdm
 from torch.amp import GradScaler, autocast
+import numpy as np
 
 dataset = load_dataset("IWSLT/iwslt2017",'iwslt2017-en-fr', trust_remote_code=True)
 trim_dataset= dataset['train']['translation'][:100000]
@@ -213,3 +214,27 @@ def translate(model: torch.nn.Module, src_sentence: str, tokenizer):
     return tokenizer.decode(tgt_tokens, skip_special_tokens=True)
 
 print(translate(model, "Hello how are you today", tokenizer))
+
+def test(test_loader, model, tokenizer, device, max_length=200):
+  precision = 0
+  recall = 0
+  f1 = 0
+  meteor_metric = 0
+
+  model.eval()
+  for src, target in test_loader:
+    src = [preprocess_data(s) for s in src]
+    target = [preprocess_data(t) for t in target]
+    predictions = []
+    for sentence in src:
+        translated_sentence = translate(model, sentence, tokenizer)
+        predictions.append(translated_sentence)
+    results_bert = bertscore.compute(predictions=predictions, references=target, lang='en')
+    results_meteor = meteor.compute(predictions=predictions, references=target)
+    precision += np.mean(results_bert['precision'])
+    recall += np.mean(results_bert['recall'])
+    f1 += np.mean(results_bert['f1'])
+    meteor_metric+= results_meteor['meteor']
+  return precision / len(test_loader), recall / len(test_loader), f1 / len(test_loader), meteor_metric / len(test_loader)
+
+test(test_set, model, tokenizer, device)
