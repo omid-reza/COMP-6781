@@ -174,7 +174,7 @@ def train(model, epochs, train_loader, validation_loader):
         val_loss = evaluate(model, validation_loader)
         print(f"Epoch: {epoch}, Train loss: {train_loss:.3f}, Val loss: {val_loss:.3f}")
 
-train(model, 2, train_loader, validation_loader)
+train(model, 20, train_loader, validation_loader)
 
 
 from evaluate import load
