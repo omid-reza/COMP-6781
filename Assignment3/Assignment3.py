@@ -10,35 +10,37 @@ from torch.amp import autocast
 from tqdm import tqdm
 from torch.amp import GradScaler, autocast
 import numpy as np
+from evaluate import load
 
 dataset = load_dataset("IWSLT/iwslt2017",'iwslt2017-en-fr', trust_remote_code=True)
 trim_dataset= dataset['train']['translation'][:100000]
 
-
 def preprocess_data(text):
-  text = text.lower() #make everything lower case
-  text = text.replace("\n", " ") #remove \n characters
-  text= re.sub(f"[{re.escape(string.punctuation)}]", "", text)#remove any punctuation or special characters
-  text = re.sub(r"\d+", "", text)#remove all numbers
+  text = text.lower()
+  text = text.replace('\n',' ')
+  text = re.sub(r'[^\w\s]', ' ', text) #remove any punctuation or special characters
+  text = ' '.join([word for word in text.split(" ") if word.isalpha()]) #remove all numbers
+
   return text
+def create_dataset(dataset, source_lang, target_lang):
+    new_dataset = []
+    for example in dataset:
+        source_text = example.get(source_lang, "")
+        target_text = example.get(target_lang, "")
+        clean_source = preprocess_data(source_text)
+        clean_target = preprocess_data(target_text)
+        new_dataset.append((clean_source, clean_target))
+    return new_dataset
 
-def create_dataset(dataset,source_lang,target_lang):
-  new_dataset=[]
-  for item in dataset:
-    source_text = preprocess_data(item[source_lang])  # Preprocess source language
-    target_text = preprocess_data(item[target_lang])  # Preprocess target language
-    new_dataset.append((source_text, target_text))
-  return new_dataset
-
-training_set=create_dataset(trim_dataset,'en','fr')
-validation_set=create_dataset(dataset['validation']['translation'],'en','fr')
-test_set=create_dataset(dataset['test']['translation'],'en','fr')
+training_set = create_dataset(trim_dataset, 'en', 'fr')
+validation_set = create_dataset(dataset['validation']['translation'], 'en', 'fr')
+test_set = create_dataset(dataset['test']['translation'], 'en', 'fr')
 
 class TransformerModel(nn.Module):
     def __init__(self, src_vocab_size, tgt_vocab_size, d_model, nhead, num_encoder_layers, num_decoder_layers, dim_feedforward, dropout):
         super(TransformerModel, self).__init__()
-        self.src_embedding = nn.Embedding(src_vocab_size, d_model)
-        self.tgt_embedding = nn.Embedding(tgt_vocab_size, d_model)
+        self.src_embedding = nn.Embedding(src_vocab_size, d_model)  # Embedding layer for source language
+        self.tgt_embedding = nn.Embedding(tgt_vocab_size, d_model)  # Embedding layer for target language
         self.transformer = nn.Transformer(
             d_model=d_model,
             nhead=nhead,
@@ -46,17 +48,18 @@ class TransformerModel(nn.Module):
             num_decoder_layers=num_decoder_layers,
             dim_feedforward=dim_feedforward,
             dropout=dropout,
-            batch_first=True
+            batch_first=True  # Ensure the batch dimension is first
         )
-        self.fc = nn.Linear(d_model, tgt_vocab_size)
+        self.fc = nn.Linear(d_model, tgt_vocab_size)  # Last linear layer
 
     def positional_encoding(self, d_model, maxlen=5000):
+        """Method to create a positional encoding buffer."""
         pos = torch.arange(0, maxlen).unsqueeze(1)
         denominator = 10000 ** (torch.arange(0, d_model, 2) / d_model)
         PE = torch.zeros((maxlen, d_model))
-        PE[:, 0::2] = torch.sin(pos / denominator)
-        PE[:, 1::2] = torch.cos(pos / denominator)
-        PE = PE.unsqueeze(0)
+        PE[:, 0::2] = torch.sin(pos / denominator)  # Calculate sin for even positions
+        PE[:, 1::2] = torch.cos(pos / denominator)  # Calculate cosine for odd positions
+        PE = PE.unsqueeze(0)  # Add batch dimension
         return PE
 
     def forward(self, src, tgt, src_mask=None, tgt_mask=None, src_key_padding_mask=None, tgt_key_padding_mask=None):
@@ -76,24 +79,25 @@ class TransformerModel(nn.Module):
         return output
 
     def encode(self, src, src_mask):
-        src = self.src_embedding(src)
-        positional_encoding = self.positional_encoding(d_model=src.shape[2]).to(src.device)
-        src_emb = src + positional_encoding[:, :src.shape[1], :]
-        return self.transformer.encoder(src_emb, src_mask)
+        src = self.src_embedding(src)  # Pass src through embedding layer
+        positional_encoding = self.positional_encoding(d_model=src.shape[2]).to(src.device)  # Create positional encoding
+        src_emb = src + positional_encoding[:, :src.shape[1], :]  # Get src_emb
+        return self.transformer.encoder(src_emb, src_mask)  # Pass src_emb through transformer encoder
 
     def decode(self, tgt, memory, tgt_mask):
-        tgt = self.tgt_embedding(tgt)
-        positional_encoding = self.positional_encoding(d_model=tgt.shape[2]).to(tgt.device)
-        tgt_emb = tgt + positional_encoding[:, :tgt.shape[1], :]
-        return self.transformer.decoder(tgt_emb, memory, tgt_mask)
-
+        tgt = self.tgt_embedding(tgt)  # Pass tgt through embedding layer
+        positional_encoding = self.positional_encoding(d_model=tgt.shape[2]).to(tgt.device)  # Create positional encoding
+        tgt_emb = tgt + positional_encoding[:, :tgt.shape[1], :]  # Get tgt_emb
+        return self.transformer.decoder(tgt_emb, memory, tgt_mask)  # Pass tgt_emb through transformer decoder
 
 def create_padding_mask(seq):
-    return (seq == 0).float()
+    mask = (seq == 0).float()
+    return mask
 
 def create_triu_mask(sz):
     mask = torch.triu(torch.ones(sz, sz), diagonal=1).transpose(0, 1).float()
-    return mask.masked_fill(mask == 1, float('-inf')).masked_fill(mask == 0, float(0.0))
+    mask = mask.masked_fill(mask == 1, float('-inf')).masked_fill(mask == 0, float(0.0))
+    return mask
 
 def tokenize_batch(source, targets, tokenizer):
     tokenized_source = tokenizer(source, padding='max_length', max_length=120, return_tensors='pt')
@@ -103,15 +107,14 @@ def tokenize_batch(source, targets, tokenizer):
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 tokenizer=AutoTokenizer.from_pretrained('google-bert/bert-base-multilingual-uncased')
-PAD_IDX = tokenizer.pad_token_id
-BOS_IDX = tokenizer.cls_token_id if tokenizer.cls_token_id else tokenizer.pad_token_id
-EOS_IDX = tokenizer.sep_token_id if tokenizer.sep_token_id else tokenizer.pad_token_id
+PAD_IDX = tokenizer.pad_token_id #for padding
+BOS_IDX = tokenizer.cls_token_id if tokenizer.cls_token_id else tokenizer.pad_token_id #for beggining of sentence
+EOS_IDX = tokenizer.sep_token_id if tokenizer.sep_token_id else tokenizer.pad_token_id #for end of sentence
 model = TransformerModel(tokenizer.vocab_size, tokenizer.vocab_size,512, 8, 3, 3, 256,0.1).to(device)
 optimizer = torch.optim.Adam(model.parameters(), lr=0.0001, betas=(0.9, 0.98), eps=1e-9)
 loss_function = torch.nn.CrossEntropyLoss(ignore_index=PAD_IDX)
 train_loader = torch.utils.data.DataLoader(training_set, batch_size=16, shuffle=True)
 validation_loader = torch.utils.data.DataLoader(validation_set, batch_size=16, shuffle=False)
-
 
 def train_epoch(model, train_loader, tokenizer, scaler, accumulation_steps=4):
     model.train()
@@ -127,7 +130,7 @@ def train_epoch(model, train_loader, tokenizer, scaler, accumulation_steps=4):
         tgt_mask = create_triu_mask(tgt_input.size(1)).to(device)
         src_padding_mask = create_padding_mask(src).to(device)
         tgt_padding_mask = create_padding_mask(tgt_input).to(device)
-        with autocast(device_type='cuda'):
+        with autocast(device_type='cuda'):  # Specify the device type
             logits = model(
                 src, tgt_input,
                 src_mask=src_mask, tgt_mask=tgt_mask,
@@ -148,70 +151,81 @@ def evaluate(model, val_dataloader):
     losses = 0
     with torch.no_grad():
         for src, tgt in tqdm(val_dataloader):
-            # Tokenize and move to device
             src, tgt = tokenize_batch(src, tgt, tokenizer)
             src = src.to(device)
             tgt = tgt.to(device)
             tgt_input = tgt[:, :-1]
-            src_mask = torch.zeros((src.size(1), src.size(1)), device=device)
-            tgt_mask = create_triu_mask(tgt_input.size(1)).to(device)
-            src_padding_mask = create_padding_mask(src).to(device)
-            tgt_padding_mask = create_padding_mask(tgt_input).to(device)
+            src_mask = torch.zeros((src.size(1), src.size(1)), device=device)  # Sequence x Sequence mask filled with zeros
+            tgt_mask = create_triu_mask(tgt_input.size(1)).to(device)  # Create triangular mask for target
+            src_padding_mask = create_padding_mask(src).to(device)  # Create padding mask for source
+            tgt_padding_mask = create_padding_mask(tgt_input).to(device)  # Create padding mask for target
             logits = model(
                 src, tgt_input,
                 src_mask=src_mask, tgt_mask=tgt_mask,
                 src_key_padding_mask=src_padding_mask, tgt_key_padding_mask=tgt_padding_mask
             )
-            tgt_out = tgt[:, 1:]
+            tgt_out = tgt[:, 1:]  # Shifted target output
             loss = loss_function(logits.reshape(-1, logits.shape[-1]), tgt_out.reshape(-1))
-            losses += loss.item()
+            losses += loss.item()  # Accumulate loss
     return losses / len(list(val_dataloader))
 
 def train(model, epochs, train_loader, validation_loader):
-    scaler = GradScaler()  # Initialize the gradient scaler
+    scaler = GradScaler()
     for epoch in range(1, epochs + 1):
-        # Pass the scaler to train_epoch
         train_loss = train_epoch(model, train_loader, tokenizer, scaler)
         val_loss = evaluate(model, validation_loader)
         print(f"Epoch: {epoch}, Train loss: {train_loss:.3f}, Val loss: {val_loss:.3f}")
 
-train(model, 20, train_loader, validation_loader)
+train(model, 10, train_loader, validation_loader)
 
-
-from evaluate import load
 bertscore = load("bertscore")
 rouge = load('rouge')
 meteor = load('meteor')
 
-# function to generate output sequence using greedy algorithm
-def greedy_decode(model, src, src_mask, max_len, start_symbol):
+def greedy_decode(model, src, src_mask, max_len, start_symbol, temperature=1.0, repetition_penalty=1.5, early_stop_threshold=5):
     src = src.to(device)
     src_mask = src_mask.to(device)
     memory = model.encode(src, src_mask)
+
     ys = torch.ones(1, 1).fill_(start_symbol).type(torch.long).to(device)
-    for i in range(max_len-1):
+    generated_tokens = []
+
+    for i in range(max_len - 1):
         memory = memory.to(device)
         tgt_mask = create_triu_mask(ys.size(1)).to(device)
         out = model.decode(ys, memory, tgt_mask)
-
-        prob = model.fc(out[:, -1])
-
-        _, next_word = torch.max(prob, dim=1)
-        next_word = next_word.item()
-
+        logits = model.fc(out[:, -1])
+        logits = logits / temperature
+        for token_id in set(generated_tokens):
+            logits[0, token_id] /= repetition_penalty
+        prob = torch.nn.functional.softmax(logits, dim=-1)
+        next_word = torch.argmax(prob, dim=-1).item()
+        generated_tokens.append(next_word)
         ys = torch.cat([ys, torch.ones(1, 1).type_as(src.data).fill_(next_word)], dim=1)
+        print(f"Step {i + 1}: Generated token: {tokenizer.decode([next_word], skip_special_tokens=False)}")
+        print(f"Partial output so far: {tokenizer.decode(ys.view(-1).tolist(), skip_special_tokens=True)}")
         if next_word == EOS_IDX:
             break
+        if len(generated_tokens) >= early_stop_threshold and len(set(generated_tokens[-early_stop_threshold:])) == 1:
+            print("Early stopping triggered due to excessive repetition.")
+            break
     return ys
-
-def translate(model: torch.nn.Module, src_sentence: str, tokenizer):
+def translate(model: torch.nn.Module, src_sentence: str, tokenizer, max_len_factor=1.2):
     model.eval()
     src, _ = tokenize_batch(src_sentence, "", tokenizer)
     src = src.to(device)
     num_tokens = src.shape[1]
     src_mask = (torch.zeros(num_tokens, num_tokens)).type(torch.float).to(device)
-    tgt_tokens = greedy_decode(model,  src, src_mask, max_len= int(num_tokens * 1.2 ), start_symbol=tokenizer.cls_token_id).flatten()
-    return tokenizer.decode(tgt_tokens, skip_special_tokens=True)
+
+    tgt_tokens = greedy_decode(
+        model,
+        src,
+        src_mask,
+        max_len=int(num_tokens * max_len_factor),
+        start_symbol=tokenizer.cls_token_id
+    ).flatten()
+
+    return tokenizer.decode(tgt_tokens.tolist(), skip_special_tokens=True)
 
 print(translate(model, "Hello how are you today", tokenizer))
 
@@ -238,3 +252,9 @@ def test(test_loader, model, tokenizer, device, max_length=200):
   return precision / len(test_loader), recall / len(test_loader), f1 / len(test_loader), meteor_metric / len(test_loader)
 
 test(test_set, model, tokenizer, device)
+
+tokens = [tokenizer.cls_token_id, tokenizer.convert_tokens_to_ids('hello'), tokenizer.convert_tokens_to_ids('world'), tokenizer.sep_token_id]
+decoded = tokenizer.decode(tokens, skip_special_tokens=True)
+print(decoded)
+
+print(translate(model, "Hello how are you today", tokenizer))
