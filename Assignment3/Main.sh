@@ -1,12 +1,10 @@
 #!/bin/bash
-#SBATCH -J COMP6781
-#SBATCH --mem=200GB
-#SBATCH --gpus=1
+#SBATCH -J 100E-6781
+#SBATCH --mem=150GB
+#SBATCH --gpus=2
 #SBATCH --mail-type=NONE
 #SBATCH --mail-user=omid.orh@gmail.com
 #SBATCH --partition=all
-#SBATCH --chdir=../../aldi/
-#SBATCH -o ../jobs/outputs/CFC-ALDI-FPN-%j.out
 
 module load anaconda
 eval "$(conda shell.bash hook)"
