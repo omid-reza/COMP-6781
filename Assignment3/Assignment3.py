@@ -3,84 +3,39 @@ import re
 import string
 from nltk.corpus import stopwords
 import nltk
-
+from transformers import T5ForConditionalGeneration, T5Tokenizer
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+from transformers import AutoTokenizer
+from torch.amp import GradScaler, autocast
 
 dataset = load_dataset("IWSLT/iwslt2017",'iwslt2017-en-fr')
 trimmed_dataset= dataset['train']['translation'][:100000]
 nltk.download('stopwords')
 
 def preprocess_data(text):
-    """ Method to clean text from noise and standardize text across the different classes.
-        The preprocessing includes converting to lowercase, removing punctuation, and removing stopwords.
-    Arguments
-    ---------
-    text : String
-        Text to clean
-    Returns
-    -------
-    text : String
-        Cleaned text
-    """
-
-    # Make everything lower case
     text = text.lower()
-
-    # Remove newline characters
     text = text.replace('\n', ' ')
-
-    # Remove any punctuation or special characters
     text = re.sub(r'[^\w\s]', ' ', text)
-
-    # Remove all numbers
     text = ' '.join([word for word in text.split(" ") if word.isalpha()])
-
-    # Remove stopwords
     stop_words = set(stopwords.words('english'))
     text = ' '.join([word for word in text.split() if word not in stop_words])
-
     return text
 
 def create_dataset(dataset, source_lang, target_lang):
-    """
-    Method to create a dataset from a list of text.
-
-    Arguments
-    ---------
-    dataset : List of Dict
-        List of dictionary objects with source and target text
-    source_lang : String
-        Source language key in the dataset
-    target_lang : String
-        Target language key in the dataset
-
-    Returns
-    -------
-    new_dataset : List of Tuples
-        Cleaned source and target text in format (source, target)
-    """
     new_dataset = []
     for example in dataset:
-        # Extract source and target text
         source_text = example.get(source_lang, "")
         target_text = example.get(target_lang, "")
-
-        # Preprocess source and target text
         clean_source = preprocess_data(source_text)
         clean_target = preprocess_data(target_text)
-
-        # Append to the dataset
         new_dataset.append((clean_source, clean_target))
     return new_dataset
 
-# Applying the preprocessing and formatting the training, validation, and test sets
 training_set = create_dataset(trimmed_dataset, 'en', 'fr')
 validation_set = create_dataset(dataset['validation']['translation'], 'en', 'fr')
 test_set = create_dataset(dataset['test']['translation'], 'en', 'fr')
-
-
-import torch
-import torch.nn as nn
-import torch.nn.functional as F
 
 class TransformerModel(nn.Module):
     def __init__(self, src_vocab_size, tgt_vocab_size, d_model, nhead, num_encoder_layers, num_decoder_layers, dim_feedforward, dropout):
@@ -154,74 +109,23 @@ class TransformerModel(nn.Module):
 import torch
 
 def create_padding_mask(seq):
-    """
-    Method to create a padding mask based on given sequence.
-    Arguments
-    ---------
-    seq : Tensor
-       Sequence to create padding mask for
-    Returns
-    -------
-    mask : Tensor
-        Padding mask
-    """
-    # Create a mask where padded tokens (value 0) are marked as 1
-    mask = (seq == 0).float()
-    return mask  # Return a 2-D tensor with shape (batch_size, sequence_length)
+    return (seq == 0).float()
 
 def create_triu_mask(sz):
-    """
-    Method to create a triangular mask based on given sequence.
-    This is used for the tgt mask in the Transformer model to avoid looking ahead.
-    Arguments
-    ---------
-    sz : int
-       Size of the mask
-    Returns
-    -------
-    mask : Tensor
-        Triangular mask
-    """
-    # Create a lower triangular matrix with 1's in the lower triangle and 0's elsewhere
     mask = torch.triu(torch.ones(sz, sz), diagonal=1).transpose(0, 1).float()
-    # Replace 0 with 0.0 and 1 with -inf
     mask = mask.masked_fill(mask == 1, float('-inf')).masked_fill(mask == 0, float(0.0))
     return mask
 
 def tokenize_batch(source, targets, tokenizer):
-    """
-    Method to tokenize a batch of data given a tokenizer.
-    Arguments
-    ---------
-    source : List of String
-       Source text
-    targets : List of String
-       Target text
-    tokenizer : Tokenizer
-       Tokenizer to use for tokenization
-    Returns
-    -------
-    tokenized_source : Tensor
-        Tokenized source text
-    tokenized_targets : Tensor
-        Tokenized target text
-    """
     tokenized_source = tokenizer(source, padding='max_length', max_length=120, truncation=True, return_tensors='pt')
     tokenized_targets = tokenizer(targets, padding='max_length', max_length=120, truncation=True, return_tensors='pt')
-
-
     return tokenized_source['input_ids'], tokenized_targets['input_ids']
 
 
-from transformers import AutoTokenizer
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 tokenizer=AutoTokenizer.from_pretrained('google-bert/bert-base-multilingual-uncased')
-# PAD_IDX = tokenizer.pad_token_id #for padding
-# BOS_IDX = tokenizer.bos_token_id #for beggining of sentence
-# EOS_IDX = tokenizer.eos_token_id #for end of sentence
-
 PAD_IDX = tokenizer.pad_token_id #for padding
 BOS_IDX = tokenizer.cls_token_id if tokenizer.cls_token_id else tokenizer.pad_token_id #for beggining of sentence
 EOS_IDX = tokenizer.sep_token_id if tokenizer.sep_token_id else tokenizer.pad_token_id #for end of sentence
@@ -231,8 +135,6 @@ model = TransformerModel(tokenizer.vocab_size, tokenizer.vocab_size,512, 8, 3, 3
 optimizer = torch.optim.Adam(model.parameters(), lr=0.0001, betas=(0.9, 0.98), eps=1e-9)
 loss_function = torch.nn.CrossEntropyLoss(ignore_index=PAD_IDX)
 
-
-# Update DataLoader batch size
 train_loader = torch.utils.data.DataLoader(training_set, batch_size=16, shuffle=True)
 validation_loader = torch.utils.data.DataLoader(validation_set, batch_size=16, shuffle=False)
 
@@ -242,7 +144,7 @@ from tqdm import tqdm
 def train_epoch(model, train_loader, tokenizer, scaler, accumulation_steps=4):
     model.train()
     losses = 0
-    optimizer.zero_grad()  # Initialize gradients
+    optimizer.zero_grad()
 
     for batch_idx, (src, tgt) in enumerate(tqdm(train_loader)):
         src, tgt = tokenize_batch(src, tgt, tokenizer)
@@ -280,46 +182,31 @@ def train_epoch(model, train_loader, tokenizer, scaler, accumulation_steps=4):
 
     return losses / len(list(train_loader))
 
-
-
-
-
 def evaluate(model, val_dataloader):
     model.eval()
     losses = 0
     with torch.no_grad():
         for src, tgt in tqdm(val_dataloader):
-            # Tokenize and move to device
             src, tgt = tokenize_batch(src, tgt, tokenizer)
             src = src.to(device)
             tgt = tgt.to(device)
-
-            # Shift target for teacher forcing
             tgt_input = tgt[:, :-1]
-
-            # Create masks
             src_mask = torch.zeros((src.size(1), src.size(1)), device=device)  # Sequence x Sequence mask filled with zeros
             tgt_mask = create_triu_mask(tgt_input.size(1)).to(device)  # Create triangular mask for target
 
             src_padding_mask = create_padding_mask(src).to(device)  # Create padding mask for source
             tgt_padding_mask = create_padding_mask(tgt_input).to(device)  # Create padding mask for target
-
-            # Forward pass through the model
             logits = model(
                 src, tgt_input,
                 src_mask=src_mask, tgt_mask=tgt_mask,
                 src_key_padding_mask=src_padding_mask, tgt_key_padding_mask=tgt_padding_mask
             )
-
-            # Compute loss
             tgt_out = tgt[:, 1:]  # Shifted target output
             loss = loss_function(logits.reshape(-1, logits.shape[-1]), tgt_out.reshape(-1))
             losses += loss.item()  # Accumulate loss
-
     return losses / len(list(val_dataloader))
 
 
-from torch.amp import GradScaler, autocast
 
 def train(model, epochs, train_loader, validation_loader):
     scaler = GradScaler()  # Initialize the gradient scaler
@@ -329,7 +216,7 @@ def train(model, epochs, train_loader, validation_loader):
         val_loss = evaluate(model, validation_loader)
         print(f"Epoch: {epoch}, Train loss: {train_loss:.3f}, Val loss: {val_loss:.3f}")
 
-train(model, 100, train_loader, validation_loader)
+train(model, 10, train_loader, validation_loader)
 
 
 import torch
@@ -341,23 +228,6 @@ meteor = load('meteor')
 
 
 def greedy_decode(model, src, src_mask, max_len, start_symbol, repetition_penalty=1.5, top_k=10, max_repetitions=5):
-    """
-    Greedy decoding with repetition penalty and top-k sampling without temperature.
-
-    Args:
-        model: The trained model.
-        src: Input sequence tensor.
-        src_mask: Mask for the input sequence.
-        max_len: Maximum output length.
-        start_symbol: The ID of the starting token.
-        repetition_penalty: Penalize repeated tokens in logits (default: 1.5).
-        top_k: The number of top tokens to consider in the sampling (default: 10).
-        max_repetitions: Number of repetitive tokens to trigger early stop.
-
-    Returns:
-        Tensor of generated token IDs.
-    """
-    # Move source to device
     src = src.to(device)
     src_mask = src_mask.to(device)
 
@@ -413,4 +283,189 @@ def translate(model: torch.nn.Module, src_sentence: str, tokenizer):
     return tokenizer.decode(tgt_tokens, skip_special_tokens=True)
 
 print(translate(model, "Hello how are you today", tokenizer))
-print(translate(model, "I hope you are doing well", tokenizer))
+print(f"BOS_IDX: {BOS_IDX}, EOS_IDX: {EOS_IDX}")
+print(translate(model, "Hi", tokenizer))
+
+
+import numpy as np
+from evaluate import load
+
+# Load evaluation metrics
+bertscore = load("bertscore")
+meteor = load('meteor')
+
+def test(test_loader, model, tokenizer, device, max_length=200):
+    precision = 0
+    recall = 0
+    f1 = 0
+    meteor_metric = 0
+    for src, target in test_loader:
+        src_tensor, _ = tokenize_batch([src], [""], tokenizer)
+        src_tensor = src_tensor.to(device)
+        translated_output = translate(model, tokenizer.decode(src_tensor[0]), tokenizer)
+        target_sentence = target[0]
+        bert_results = bertscore.compute(predictions=[translated_output], references=[target_sentence], lang='fr')
+        meteor_results = meteor.compute(predictions=[translated_output], references=[target_sentence])
+        precision += bert_results['precision'][0]
+        recall += bert_results['recall'][0]
+        f1 += bert_results['f1'][0]
+        meteor_metric += meteor_results['meteor']
+    num_samples = len(test_loader)
+    return precision / num_samples, recall / num_samples, f1 / num_samples, meteor_metric / num_samples
+
+precision, recall, f1, meteor_metric = test(test_set, model, tokenizer, device)
+print(f"Precision: {precision:.3f}, Recall: {recall:.3f}, F1: {f1:.3f}, METEOR: {meteor_metric:.3f}")
+
+for i in range(3):
+    src_sentence, _ = test_set[i]  #
+    print(f"Source: {src_sentence}")
+    translated = translate(model, src_sentence, tokenizer)
+    print(f"Translation: {translated}")
+    print('-' * 50)
+
+
+import os
+os.environ["WANDB_DISABLED"] = "true"
+
+
+# Download nltk data
+nltk.download('wordnet')
+nltk.download('omw-1.4')
+
+def preprocess_t5_input_for_training(dataset, source_lang="English", target_lang="French"):
+    inputs = [f"translate {source_lang} to {target_lang}: {src}" for src, tgt in dataset]
+    targets = [tgt for src, tgt in dataset]
+    return inputs, targets
+
+train_inputs, train_targets = preprocess_t5_input_for_training(training_set)
+val_inputs, val_targets = preprocess_t5_input_for_training(validation_set)
+test_inputs, test_targets = preprocess_t5_input_for_training(test_set)
+
+
+# Define the device
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+# Load the T5 model and tokenizer
+model_name = "t5-small"  # or "t5-base" for a larger model
+t5_model = T5ForConditionalGeneration.from_pretrained(model_name).to(device)
+t5_tokenizer = T5Tokenizer.from_pretrained(model_name)
+
+print("T5 model and tokenizer loaded successfully!")
+
+def translate_with_t5(t5_model, t5_tokenizer, sentences, device, max_length=200):
+    inputs = t5_tokenizer(sentences, return_tensors="pt", padding=True, truncation=True, max_length=max_length).to(device)
+    outputs = t5_model.generate(input_ids=inputs.input_ids, attention_mask=inputs.attention_mask, max_length=max_length)
+    translations = t5_tokenizer.batch_decode(outputs, skip_special_tokens=True)
+    return translations
+
+def evaluate_translation_model(model, tokenizer, test_sentences, reference_sentences, device, is_t5=False, max_length=200):
+    generated_translations = []
+    meteor_metric = 0
+
+    # Translate sentences
+    for src_sentence in test_sentences:
+        if is_t5:
+            inputs = tokenizer(src_sentence, return_tensors="pt", truncation=True, padding=True, max_length=max_length).to(device)
+            outputs = model.generate(input_ids=inputs.input_ids, attention_mask=inputs.attention_mask, max_length=max_length)
+            translation = tokenizer.decode(outputs[0], skip_special_tokens=True)
+        else:
+            translation = translate(model, src_sentence, tokenizer)
+        generated_translations.append(translation)
+
+    # Compute BERTScore
+    P, R, F1 = bert_score(generated_translations, reference_sentences, lang="en")
+    precision = P.mean().item()
+    recall = R.mean().item()
+    f1 = F1.mean().item()
+
+    # Compute METEOR score
+    for ref, hyp in zip(reference_sentences, generated_translations):
+        meteor_metric += single_meteor_score(ref.split(), hyp.split())
+
+    return generated_translations, precision, recall, f1, meteor_metric / len(reference_sentences)
+
+test_src_sentences = [src for src, _ in test_set[:10]]
+test_ref_sentences = [tgt for _, tgt in test_set[:10]]
+
+generated_translations, precision, recall, f1, meteor_metric = evaluate_translation_model(
+    model=t5_model,
+    tokenizer=t5_tokenizer,
+    test_sentences=test_src_sentences,
+    reference_sentences=test_ref_sentences,
+    device=device,
+    is_t5=True
+)
+
+print("Sample Translations:")
+for i in range(5):  # Display first 5 translations
+    print(f"Source: {test_src_sentences[i]}")
+    print(f"Generated Translation: {generated_translations[i]}")
+    print(f"Reference Translation: {test_ref_sentences[i]}\n")
+
+print(f"T5 Model - Precision: {precision:.4f}, Recall: {recall:.4f}, F1: {f1:.4f}, METEOR: {meteor_metric:.4f}")
+
+
+from bert_score import score as bert_score  # For BERTScore
+from evaluate import load as load_metric  # For loading ROUGE
+from nltk.translate.meteor_score import single_meteor_score
+
+rouge = load_metric('rouge')
+
+def evaluate_translation_model(model, tokenizer, test_sentences, reference_sentences, device, is_t5=False, max_length=200):
+    generated_translations = []
+    meteor_metric = 0
+
+    for src_sentence in test_sentences:
+        if is_t5:
+            inputs = tokenizer(src_sentence, return_tensors="pt", truncation=True, padding=True, max_length=max_length).to(device)
+            outputs = model.generate(input_ids=inputs.input_ids, attention_mask=inputs.attention_mask, max_length=max_length)
+            translation = tokenizer.decode(outputs[0], skip_special_tokens=True)
+        else:
+            translation = translate(model, src_sentence, tokenizer)
+        generated_translations.append(translation)
+
+    P, R, F1 = bert_score(generated_translations, reference_sentences, lang="en")
+    precision = P.mean().item()
+    recall = R.mean().item()
+    f1 = F1.mean().item()
+    rouge_scores = rouge.compute(predictions=generated_translations, references=reference_sentences)
+    for ref, hyp in zip(reference_sentences, generated_translations):
+        meteor_metric += single_meteor_score(ref.split(), hyp.split())
+
+    return generated_translations, precision, recall, f1, meteor_metric / len(reference_sentences), rouge_scores
+
+test_src_sentences = [src for src, _ in test_set[:10]]
+test_ref_sentences = [tgt for _, tgt in test_set[:10]]
+
+generated_translations, precision, recall, f1, meteor_metric, rouge_scores = evaluate_translation_model(
+    model=t5_model,
+    tokenizer=t5_tokenizer,
+    test_sentences=test_src_sentences,
+    reference_sentences=test_ref_sentences,
+    device=device,
+    is_t5=True
+)
+
+print("Sample Translations:")
+for i in range(5):  # Display first 5 translations
+    print(f"Source: {test_src_sentences[i]}")
+    print(f"Generated Translation: {generated_translations[i]}")
+    print(f"Reference Translation: {test_ref_sentences[i]}\n")
+
+print(f"T5 Model - Precision (BERTScore): {precision:.4f}, Recall (BERTScore): {recall:.4f}, F1 (BERTScore): {f1:.4f}, METEOR: {meteor_metric:.4f}")
+print(f"ROUGE Scores: {rouge_scores}")
+
+avg_f1_score = (rouge_scores['rouge1'] +
+                rouge_scores['rouge2'] +
+                rouge_scores['rougeL']) / 3
+
+print(f"Average ROUGE F1 Score: {avg_f1_score:.4f}")
+
+print(rouge_scores)
+
+avg_f1_score = (rouge_scores['rouge1'] +
+                rouge_scores['rouge2'] +
+                rouge_scores['rougeL'] +
+                rouge_scores['rougeLsum']) / 4
+
+print(f"Average ROUGE F1 Score (including ROUGE-Lsum): {avg_f1_score:.4f}")

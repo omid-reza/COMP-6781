@@ -1,10 +1,11 @@
 #!/bin/bash
-#SBATCH -J 100E-6781
-#SBATCH --mem=150GB
-#SBATCH --gpus=2
+#SBATCH -J 10-6781
+#SBATCH --mem=100GB
+#SBATCH --gpus=1
 #SBATCH --mail-type=NONE
 #SBATCH --mail-user=omid.orh@gmail.com
-#SBATCH --partition=all
+#SBATCH --partition=phys
+#SBATCH -o COMP6781-A3-10epoch-%j.out
 
 module load anaconda
 eval "$(conda shell.bash hook)"
