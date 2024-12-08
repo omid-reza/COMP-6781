@@ -10,6 +10,7 @@ import torch.nn.functional as F
 from transformers import AutoTokenizer
 from torch.amp import GradScaler, autocast
 
+epoch_count_training = 200
 dataset = load_dataset("IWSLT/iwslt2017",'iwslt2017-en-fr')
 trimmed_dataset= dataset['train']['translation'][:100000]
 nltk.download('stopwords')
@@ -216,7 +217,7 @@ def train(model, epochs, train_loader, validation_loader):
         val_loss = evaluate(model, validation_loader)
         print(f"Epoch: {epoch}, Train loss: {train_loss:.3f}, Val loss: {val_loss:.3f}")
 
-train(model, 10, train_loader, validation_loader)
+train(model, epoch_count_training, train_loader, validation_loader)
 
 
 import torch
