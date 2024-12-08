@@ -10,7 +10,7 @@ import torch.nn.functional as F
 from transformers import AutoTokenizer
 from torch.amp import GradScaler, autocast
 
-epoch_count_training = 80
+epoch_count_training = 100
 dataset = load_dataset("IWSLT/iwslt2017",'iwslt2017-en-fr')
 trimmed_dataset= dataset['train']['translation'][:100000]
 nltk.download('stopwords')
