@@ -10,7 +10,7 @@ import torch.nn.functional as F
 from transformers import AutoTokenizer
 from torch.amp import GradScaler, autocast
 
-epoch_count_training = 10
+epoch_count_training = 1
 dataset = load_dataset("IWSLT/iwslt2017",'iwslt2017-en-fr')
 trimmed_dataset= dataset['train']['translation'][:100000]
 nltk.download('stopwords')
@@ -115,9 +115,7 @@ def create_padding_mask(seq):
 def create_triu_mask(sz):
     mask = torch.triu(torch.ones(sz, sz), diagonal=1).transpose(0, 1).float()
     mask = mask.masked_fill(mask == 1, float('-inf')).masked_fill(mask == 0, float(0.0))
-    mask = torch.flip(mask, dims=(0, 1))
-    print(mask)
-    return mask
+    return torch.flip(mask, dims=(0, 1))
 
 def tokenize_batch(source, targets, tokenizer):
     tokenized_source = tokenizer(source, padding='max_length', max_length=120, truncation=True, return_tensors='pt')
