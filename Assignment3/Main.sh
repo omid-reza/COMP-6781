@@ -1,11 +1,11 @@
 #!/bin/bash
-#SBATCH -J 120-6781
+#SBATCH -J 80-6781
 #SBATCH --mem=85GB
 #SBATCH --gpus=1
 #SBATCH --mail-type=NONE
 #SBATCH --mail-user=omid.orh@gmail.com
 #SBATCH --partition=phys
-#SBATCH -o COMP6781-A3-120epoch.out
+#SBATCH -o COMP6781-A3-80epoch.out
 #SBATCH -w virya2
 
 module load anaconda
