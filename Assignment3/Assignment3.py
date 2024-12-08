@@ -115,6 +115,7 @@ def create_padding_mask(seq):
 def create_triu_mask(sz):
     mask = torch.triu(torch.ones(sz, sz), diagonal=1).transpose(0, 1).float()
     mask = mask.masked_fill(mask == 1, float('-inf')).masked_fill(mask == 0, float(0.0))
+    print(mask)
     return mask
 
 def tokenize_batch(source, targets, tokenizer):
@@ -194,7 +195,6 @@ def evaluate(model, val_dataloader):
             tgt_input = tgt[:, :-1]
             src_mask = torch.zeros((src.size(1), src.size(1)), device=device)  # Sequence x Sequence mask filled with zeros
             tgt_mask = create_triu_mask(tgt_input.size(1)).to(device)  # Create triangular mask for target
-            print(tgt_mask)
             src_padding_mask = create_padding_mask(src).to(device)  # Create padding mask for source
             tgt_padding_mask = create_padding_mask(tgt_input).to(device)  # Create padding mask for target
             logits = model(
