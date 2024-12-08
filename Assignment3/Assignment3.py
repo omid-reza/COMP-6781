@@ -115,6 +115,7 @@ def create_padding_mask(seq):
 def create_triu_mask(sz):
     mask = torch.triu(torch.ones(sz, sz), diagonal=1).transpose(0, 1).float()
     mask = mask.masked_fill(mask == 1, float('-inf')).masked_fill(mask == 0, float(0.0))
+    mask = torch.flip(mask, dims=(0, 1))
     print(mask)
     return mask
 
