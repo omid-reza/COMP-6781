@@ -10,7 +10,7 @@ import torch.nn.functional as F
 from transformers import AutoTokenizer
 from torch.amp import GradScaler, autocast
 
-epoch_count_training = 200
+epoch_count_training = 10
 dataset = load_dataset("IWSLT/iwslt2017",'iwslt2017-en-fr')
 trimmed_dataset= dataset['train']['translation'][:100000]
 nltk.download('stopwords')
@@ -194,7 +194,7 @@ def evaluate(model, val_dataloader):
             tgt_input = tgt[:, :-1]
             src_mask = torch.zeros((src.size(1), src.size(1)), device=device)  # Sequence x Sequence mask filled with zeros
             tgt_mask = create_triu_mask(tgt_input.size(1)).to(device)  # Create triangular mask for target
-
+            print(tgt_mask)
             src_padding_mask = create_padding_mask(src).to(device)  # Create padding mask for source
             tgt_padding_mask = create_padding_mask(tgt_input).to(device)  # Create padding mask for target
             logits = model(
