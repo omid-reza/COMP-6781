@@ -324,11 +324,10 @@ for i in range(3):
     print('-' * 50)
 
 
+import torch
 import os
 os.environ["WANDB_DISABLED"] = "true"
 
-
-# Download nltk data
 nltk.download('wordnet')
 nltk.download('omw-1.4')
 
@@ -342,27 +341,21 @@ val_inputs, val_targets = preprocess_t5_input_for_training(validation_set)
 test_inputs, test_targets = preprocess_t5_input_for_training(test_set)
 
 
-# Define the device
+from transformers import T5ForConditionalGeneration, T5Tokenizer
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
-# Load the T5 model and tokenizer
-model_name = "t5-small"  # or "t5-base" for a larger model
+model_name = "t5-small"
 t5_model = T5ForConditionalGeneration.from_pretrained(model_name).to(device)
 t5_tokenizer = T5Tokenizer.from_pretrained(model_name)
-
-print("T5 model and tokenizer loaded successfully!")
 
 def translate_with_t5(t5_model, t5_tokenizer, sentences, device, max_length=200):
     inputs = t5_tokenizer(sentences, return_tensors="pt", padding=True, truncation=True, max_length=max_length).to(device)
     outputs = t5_model.generate(input_ids=inputs.input_ids, attention_mask=inputs.attention_mask, max_length=max_length)
-    translations = t5_tokenizer.batch_decode(outputs, skip_special_tokens=True)
-    return translations
+    return t5_tokenizer.batch_decode(outputs, skip_special_tokens=True)
 
+from bert_score import score as bert_score
+from nltk.translate.meteor_score import single_meteor_score
 def evaluate_translation_model(model, tokenizer, test_sentences, reference_sentences, device, is_t5=False, max_length=200):
-    generated_translations = []
-    meteor_metric = 0
-
-    # Translate sentences
+    generated_translations, meteor_metric = [], 0
     for src_sentence in test_sentences:
         if is_t5:
             inputs = tokenizer(src_sentence, return_tensors="pt", truncation=True, padding=True, max_length=max_length).to(device)
@@ -371,22 +364,15 @@ def evaluate_translation_model(model, tokenizer, test_sentences, reference_sente
         else:
             translation = translate(model, src_sentence, tokenizer)
         generated_translations.append(translation)
-
-    # Compute BERTScore
     P, R, F1 = bert_score(generated_translations, reference_sentences, lang="en")
     precision = P.mean().item()
     recall = R.mean().item()
     f1 = F1.mean().item()
-
-    # Compute METEOR score
     for ref, hyp in zip(reference_sentences, generated_translations):
         meteor_metric += single_meteor_score(ref.split(), hyp.split())
-
     return generated_translations, precision, recall, f1, meteor_metric / len(reference_sentences)
-
 test_src_sentences = [src for src, _ in test_set[:10]]
 test_ref_sentences = [tgt for _, tgt in test_set[:10]]
-
 generated_translations, precision, recall, f1, meteor_metric = evaluate_translation_model(
     model=t5_model,
     tokenizer=t5_tokenizer,
@@ -395,26 +381,21 @@ generated_translations, precision, recall, f1, meteor_metric = evaluate_translat
     device=device,
     is_t5=True
 )
-
 print("Sample Translations:")
-for i in range(5):  # Display first 5 translations
+for i in range(5):
     print(f"Source: {test_src_sentences[i]}")
     print(f"Generated Translation: {generated_translations[i]}")
     print(f"Reference Translation: {test_ref_sentences[i]}\n")
-
 print(f"T5 Model - Precision: {precision:.4f}, Recall: {recall:.4f}, F1: {f1:.4f}, METEOR: {meteor_metric:.4f}")
 
 
-from bert_score import score as bert_score  # For BERTScore
-from evaluate import load as load_metric  # For loading ROUGE
+from bert_score import score as bert_score
+from evaluate import load as load_metric
 from nltk.translate.meteor_score import single_meteor_score
-
 rouge = load_metric('rouge')
-
 def evaluate_translation_model(model, tokenizer, test_sentences, reference_sentences, device, is_t5=False, max_length=200):
     generated_translations = []
     meteor_metric = 0
-
     for src_sentence in test_sentences:
         if is_t5:
             inputs = tokenizer(src_sentence, return_tensors="pt", truncation=True, padding=True, max_length=max_length).to(device)
@@ -423,7 +404,6 @@ def evaluate_translation_model(model, tokenizer, test_sentences, reference_sente
         else:
             translation = translate(model, src_sentence, tokenizer)
         generated_translations.append(translation)
-
     P, R, F1 = bert_score(generated_translations, reference_sentences, lang="en")
     precision = P.mean().item()
     recall = R.mean().item()
@@ -431,12 +411,9 @@ def evaluate_translation_model(model, tokenizer, test_sentences, reference_sente
     rouge_scores = rouge.compute(predictions=generated_translations, references=reference_sentences)
     for ref, hyp in zip(reference_sentences, generated_translations):
         meteor_metric += single_meteor_score(ref.split(), hyp.split())
-
     return generated_translations, precision, recall, f1, meteor_metric / len(reference_sentences), rouge_scores
-
 test_src_sentences = [src for src, _ in test_set[:10]]
 test_ref_sentences = [tgt for _, tgt in test_set[:10]]
-
 generated_translations, precision, recall, f1, meteor_metric, rouge_scores = evaluate_translation_model(
     model=t5_model,
     tokenizer=t5_tokenizer,
@@ -445,27 +422,18 @@ generated_translations, precision, recall, f1, meteor_metric, rouge_scores = eva
     device=device,
     is_t5=True
 )
-
 print("Sample Translations:")
-for i in range(5):  # Display first 5 translations
+for i in range(5):
     print(f"Source: {test_src_sentences[i]}")
     print(f"Generated Translation: {generated_translations[i]}")
     print(f"Reference Translation: {test_ref_sentences[i]}\n")
-
 print(f"T5 Model - Precision (BERTScore): {precision:.4f}, Recall (BERTScore): {recall:.4f}, F1 (BERTScore): {f1:.4f}, METEOR: {meteor_metric:.4f}")
 print(f"ROUGE Scores: {rouge_scores}")
 
-avg_f1_score = (rouge_scores['rouge1'] +
-                rouge_scores['rouge2'] +
-                rouge_scores['rougeL']) / 3
 
+avg_f1_score = (rouge_scores['rouge1'] + rouge_scores['rouge2'] + rouge_scores['rougeL']) / 3
 print(f"Average ROUGE F1 Score: {avg_f1_score:.4f}")
-
 print(rouge_scores)
 
-avg_f1_score = (rouge_scores['rouge1'] +
-                rouge_scores['rouge2'] +
-                rouge_scores['rougeL'] +
-                rouge_scores['rougeLsum']) / 4
-
+avg_f1_score = (rouge_scores['rouge1'] + rouge_scores['rouge2'] + rouge_scores['rougeL'] + rouge_scores['rougeLsum']) / 4
 print(f"Average ROUGE F1 Score (including ROUGE-Lsum): {avg_f1_score:.4f}")
